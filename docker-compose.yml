@@ -1,0 +1,201 @@
+version: "3.9"
+
+# ============================================================
+#  Telemedicine Workload Offloader — Full Stack
+#  docker compose up --build
+# ============================================================
+
+services:
+
+  # ── PostgreSQL + TimescaleDB ───────────────────────────────
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: telemedicine-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       telemedicine
+      POSTGRES_USER:     telemedicine
+      POSTGRES_PASSWORD: telemedicine123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemedicine -d telemedicine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: telemedicine-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MQTT Broker (Mosquitto) ────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: telemedicine-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"    # WebSocket (for browser MQTT clients)
+    volumes:
+      - ./monitoring/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_pub -h localhost -t health -m ping || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── FastAPI Backend ────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: telemedicine-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://telemedicine:telemedicine123@postgres:5432/telemedicine
+      REDIS_URL:    redis://redis:6379
+      MQTT_HOST:    mosquitto
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── MQTT Consumer ──────────────────────────────────────────
+  mqtt-consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile.mqtt
+    container_name: telemedicine-mqtt-consumer
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://telemedicine:telemedicine123@postgres:5432/telemedicine
+      REDIS_URL:    redis://redis:6379
+      MQTT_HOST:    mosquitto
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+  # ── MLflow Tracking Server ─────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.2
+    container_name: telemedicine-mlflow
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI:  postgresql://telemedicine:telemedicine123@postgres:5432/mlflow
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+    command: >
+      mlflow server
+        --host 0.0.0.0
+        --port 5000
+        --backend-store-uri postgresql://telemedicine:telemedicine123@postgres:5432/mlflow
+        --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Streamlit Dashboard ────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: telemedicine-dashboard
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      API_BASE_URL: http://api:8000
+    command: streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./dashboard:/app/dashboard
+      - ./src:/app/src
+      - ./data:/app/data
+
+  # ── Prometheus ─────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: telemedicine-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    depends_on:
+      - api
+
+  # ── Grafana ────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: telemedicine-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+
+# ── Volumes ────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  mosquitto_data:
+  mosquitto_log:
+  mlflow_artifacts:
+  prometheus_data:
+  grafana_data:

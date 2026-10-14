@@ -1,0 +1,61 @@
+# Dockerfile.api
+# Multi-stage build for the FastAPI backend + Streamlit dashboard
+# ================================================================
+
+# ── Stage 1: Builder ──────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install system dependencies for psycopg2, numpy, TensorFlow
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python deps first (Docker layer cache)
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ── Stage 2: Runtime ──────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Runtime system deps only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy project source
+COPY backend/   ./backend/
+COPY src/       ./src/
+COPY dashboard/ ./dashboard/
+COPY data/      ./data/
+COPY migrations/ ./migrations/
+COPY .env.example .env.example
+
+# Create directories
+RUN mkdir -p logs results/graphs data/raw data/processed
+
+# Non-root user for security
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default: run FastAPI
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

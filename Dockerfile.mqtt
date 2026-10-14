@@ -1,0 +1,31 @@
+# Dockerfile.mqtt
+# Lightweight container for the MQTT consumer service
+# =====================================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy source
+COPY backend/ ./backend/
+COPY src/     ./src/
+COPY data/    ./data/
+
+RUN mkdir -p logs data/raw data/processed
+
+# Non-root user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Run MQTT consumer
+CMD ["python", "-m", "backend.mqtt.consumer"]
