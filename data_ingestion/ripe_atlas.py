@@ -30,11 +30,26 @@ import os
 import sys
 import time
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 import httpx
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from backend.core.config import settings
+# ── Load .env manually (no pydantic-settings needed to run this script) ───────
+def _load_dotenv(env_path: Path) -> None:
+    """Simple .env loader — no external dependency required."""
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+_load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -172,7 +187,7 @@ def main():
                         help="Output CSV path")
     parser.add_argument("--hours", type=int, default=24,
                         help="Hours of data to download (default: 24)")
-    parser.add_argument("--api-key", default=settings.RIPE_API_KEY,
+    parser.add_argument("--api-key", default=os.environ.get("RIPE_API_KEY", ""),
                         help="RIPE Atlas API key (or set RIPE_API_KEY in .env)")
     parser.add_argument("--all-builtin", action="store_true",
                         help="Download all built-in measurements and merge")
