@@ -55,6 +55,18 @@ prometheus-client==0.20.0
 matplotlib==3.9.0
 requests==2.31.0
 
+# ── Structured Logging ────────────────────────────────────────
+structlog==24.2.0        # JSON-line logs with request_id per request
+
+# ── Rate Limiting ─────────────────────────────────────────────
+slowapi==0.1.9           # FastAPI rate limiter (wraps limits library)
+
+# ── Load Testing ──────────────────────────────────────────────
+locust==2.28.0           # Run: locust -f scripts/load_test.py
+
+# ── PhysioNet ECG data ────────────────────────────────────────
+wfdb==4.1.2              # Read PhysioNet WFDB format (BIDMC vitals)
+
 # ── Testing ───────────────────────────────────────────────────
 pytest==8.2.0
 pytest-asyncio==0.23.7
