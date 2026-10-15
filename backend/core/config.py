@@ -57,8 +57,9 @@ class Settings(BaseSettings):
     EMAIL_PORT: int = 587
     EMAIL_USERNAME: str = ""
     EMAIL_PASSWORD: str = ""
-    EMAIL_FROM: str = "alerts@telemedicine.local"
+    EMAIL_FROM: str = ""
     EMAIL_ENABLED: bool = False
+    DOCTOR_EMAIL: str = ""
 
     # ── RIPE Atlas ────────────────────────────────────────────────
     RIPE_API_KEY: str = ""

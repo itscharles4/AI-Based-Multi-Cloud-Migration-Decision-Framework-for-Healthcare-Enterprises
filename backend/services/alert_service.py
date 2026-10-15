@@ -134,17 +134,19 @@ async def send_email_alert(
     """
 
     def _send_sync():
+        sender = settings.EMAIL_FROM or settings.EMAIL_USERNAME
+        recipient = settings.DOCTOR_EMAIL or settings.EMAIL_USERNAME
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"]    = settings.EMAIL_FROM
-        msg["To"]      = settings.EMAIL_USERNAME
+        msg["From"]    = sender
+        msg["To"]      = recipient
         msg.attach(MIMEText(html_body, "html"))
 
         with smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT) as server:
             server.ehlo()
             server.starttls()
             server.login(settings.EMAIL_USERNAME, settings.EMAIL_PASSWORD)
-            server.sendmail(settings.EMAIL_FROM, settings.EMAIL_USERNAME, msg.as_string())
+            server.sendmail(sender, [recipient], msg.as_string())
 
     try:
         loop = asyncio.get_event_loop()
