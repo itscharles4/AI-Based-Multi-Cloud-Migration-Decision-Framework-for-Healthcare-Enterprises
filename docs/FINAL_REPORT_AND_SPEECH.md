@@ -17,7 +17,7 @@
 |--------|---------|--------------|
 | Charles Jehanabad | 24BIT0522 | Architecture, LSTM Prediction, RIPE Atlas Data |
 | Tanmay | 24BIT0537 | AHP Decision Engine, Override Logic, Alerts |
-| [Third Member] | 24BIT0543 | Database, Testing, CI/CD, Dashboard |
+| Rani Gupta | 24BIT0543 | Database, Testing, CI/CD, Dashboard |
 
 **GitHub:** https://github.com/itscharles4/AI-Based-Multi-Cloud-Migration-Decision-Framework-for-Healthcare-Enterprises_Cloud_Project_2026
 
@@ -309,10 +309,10 @@ I now hand over to our third member.
 
 ---
 
-## [THIRD MEMBER] (24BIT0543) -- ~5 minutes
+## RANI GUPTA (24BIT0543) -- ~5 minutes
 ## Topic: Database, Dashboard, Testing, CI/CD, AWS Migration
 
-Thank you Tanmay. Good morning Professor. I am [name], roll number 24BIT0543.
+Thank you Tanmay. Good morning Professor. I am Rani Gupta, roll number 24BIT0543.
 
 ### Database
 
@@ -443,4 +443,4 @@ The dashboard only READS data. It never writes or modifies anything.
 ---
 
 BCSE355L Cloud Architecture Design -- VIT University, October 2026
-Team: Charles Jehanabad (24BIT0522) | Tanmay (24BIT0537) | [Third Member] (24BIT0543)
+Team: Charles Jehanabad (24BIT0522) | Tanmay (24BIT0537) | Rani Gupta (@grani27-m - 24BIT0543)
