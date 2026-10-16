@@ -48,12 +48,15 @@ def handle_event(event: dict) -> dict:
     # ── LOCAL ALERT (simulates Amazon SNS local alert / paging the on-call doctor) ──
     # TODO AWS MIGRATION: replace print with boto3.client('sns').publish(
     #     TopicArn=..., Message=f"CRITICAL ALERT: {device_id} criticality={criticality}")
+    import sys
+    _out = open(sys.stdout.fileno(), mode="w", encoding="utf-8", buffering=1, closefd=False)
     print(
-        f"\n🚨 LOCAL ALERT TRIGGERED 🚨\n"
-        f"   Device   : {device_id}\n"
-        f"   Criticality Score: {criticality:.1f}/10\n"
-        f"   Timestamp: {timestamp}\n"
-        f"   Action   : On-call physician paged immediately.\n"
+        f"\n*** LOCAL ALERT TRIGGERED ***\n"
+        f"   Device      : {device_id}\n"
+        f"   Criticality : {criticality:.1f}/10\n"
+        f"   Timestamp   : {timestamp}\n"
+        f"   Action      : On-call physician paged immediately.\n",
+        file=_out,
     )
 
     # ── Hot storage (simulates DynamoDB) ─────────────────────────────────────

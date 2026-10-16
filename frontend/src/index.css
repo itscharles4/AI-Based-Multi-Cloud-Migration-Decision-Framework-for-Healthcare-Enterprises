@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* === Design System Tokens (from Frontend Build Guide §4) === */
+:root {
+  --page:       #F1F5F9;
+  --surface:    #FFFFFF;
+  --text:       #0F172A;
+  --muted:      #475569;
+  --cloud:      #2563EB;
+  --edge:       #0F766E;
+  --emergency:  #DC2626;
+  --veto:       #B45309;
+  --ok:         #15803D;
+  --border:     #E2E8F0;
+  --radius:     8px;
+}
+
+.dark {
+  --page:       #020617;
+  --surface:    #0F172A;
+  --text:       #E2E8F0;
+  --muted:      #94A3B8;
+  --cloud:      #60A5FA;
+  --edge:       #2DD4BF;
+  --emergency:  #F87171;
+  --veto:       #FBBF24;
+  --ok:         #4ADE80;
+  --border:     #1E293B;
+}
+
+body {
+  background-color: var(--page);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--page); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Focus rings for accessibility */
+:focus-visible { outline: 2px solid var(--cloud); outline-offset: 2px; }

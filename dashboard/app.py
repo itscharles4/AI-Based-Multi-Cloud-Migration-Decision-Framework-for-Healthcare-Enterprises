@@ -22,12 +22,13 @@ Prerequisites:
 
 import sys
 import os
+import time
+import subprocess
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
 import pandas as pd
-import time
 
 # Page configuration -- must be the FIRST Streamlit call
 st.set_page_config(
@@ -41,6 +42,12 @@ from src.execution.auth    import login, verify_token
 from src.execution.storage import init_db, get_recent_hot_records, get_routing_distribution
 
 init_db()
+
+# Base URL of the FastAPI backend
+API_BASE         = "http://127.0.0.1:8000"
+THRESHOLD_MEDIUM = 75.0
+THRESHOLD_HIGH   = 150.0
+THRESHOLD_VETO   = 300.0
 
 # ---------------------------------------------------------------------------
 # Custom CSS
@@ -204,12 +211,18 @@ def _build_pie_chart(distribution: dict):
 
 
 def _build_latency_trend(df: pd.DataFrame):
-    """Predicted latency line chart with EDGE/CLOUD decision markers."""
+    """
+    Predicted latency line chart with EDGE/CLOUD decision markers.
+    BUG FIX: uses format='ISO8601' so timestamps like '2026-10-15T05:52:28+00:00'
+    parse correctly instead of crashing with 'unconverted data remains'.
+    """
     import plotly.graph_objects as go
 
     chart_df = df[["stored_at", "predicted_latency_ms", "routing_decision"]].copy()
-    chart_df = chart_df.sort_values("stored_at").tail(100)
-    chart_df["stored_at"] = pd.to_datetime(chart_df["stored_at"])
+    chart_df = chart_df.sort_values("stored_at").tail(100).reset_index(drop=True)
+    # KEY FIX: format='ISO8601' handles timezone-aware strings without crashing
+    chart_df["stored_at"] = pd.to_datetime(chart_df["stored_at"], format="ISO8601", utc=True, errors="coerce")
+    chart_df = chart_df.dropna(subset=["stored_at"])
 
     edge_pts  = chart_df[chart_df["routing_decision"] == "EDGE"]
     cloud_pts = chart_df[chart_df["routing_decision"] == "CLOUD"]
@@ -335,31 +348,72 @@ def render_dashboard():
 
     # --- Sidebar ---
     with st.sidebar:
-        st.markdown("### 🔧 Controls")
+        st.markdown("### Controls")
 
-        # Auto-refresh
-        auto_refresh = st.checkbox("⚡ Auto-refresh", value=False)
+        auto_refresh     = st.checkbox("Auto-refresh", value=False)
         refresh_interval = st.slider("Refresh interval (sec)", 5, 60, 10, step=5,
                                      disabled=not auto_refresh)
-
-        if st.button("🔄 Refresh Now", use_container_width=True):
+        if st.button("Refresh Now", use_container_width=True):
             st.rerun()
-        if st.button("🚪 Logout", use_container_width=True):
+
+        st.markdown("---")
+        st.markdown("**Simulation**")
+        st.caption("Stream live IoMT data into the pipeline:")
+        n_windows = st.number_input("Windows to send", min_value=5, max_value=200, value=20, step=5)
+        if st.button("Run Simulation", use_container_width=True):
+            _api_ok = False
+            try:
+                import requests as _req
+                _api_ok = _req.get(f"{API_BASE}/health", timeout=2).status_code == 200
+            except Exception:
+                pass
+            if not _api_ok:
+                st.error("API offline -- start the backend first.")
+            else:
+                with st.spinner(f"Streaming {n_windows} windows to API..."):
+                    try:
+                        env = {**os.environ, "MAX_WINDOWS": str(n_windows)}
+                        result = subprocess.run(
+                            [sys.executable, "src/api/simulate_stream.py"],
+                            capture_output=True, text=True, timeout=90,
+                            cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                            env=env,
+                        )
+                        if result.returncode == 0:
+                            st.success(f"Done! {n_windows} windows sent.")
+                        else:
+                            st.error("Simulation error: " + result.stderr[:300])
+                    except subprocess.TimeoutExpired:
+                        st.warning("Timed out -- partial data may have been sent.")
+                    except Exception as exc:
+                        st.error(f"Error: {exc}")
+                st.rerun()
+
+        st.markdown("---")
+        if st.button("Logout", use_container_width=True):
             st.session_state.pop("auth_token", None)
             st.rerun()
 
         st.markdown("---")
-        st.markdown("**System Info**")
-        st.caption("Storage: SQLite (sim DynamoDB)")
+        st.markdown("**System Architecture**")
+        st.caption("Storage: SQLite -> AWS DynamoDB")
         st.caption("Auth: Mock Cognito")
-        st.caption("Logger: RotatingFile (sim CloudWatch)")
+        st.caption("Audit: SHA-256 Hash Chain")
+        st.caption("CI/CD: GitHub Actions -> ECR")
         st.markdown("---")
         st.markdown("**Team**")
-        st.caption("Charles (24BIT0522) — LSTM")
-        st.caption("Tanmay (24BIT0079) — AHP")
-        st.caption("Rani (24BIT0543) — Execution")
+        st.caption("Charles Jehanabad (24BIT0522) -- BiLSTM")
+        st.caption("Tanmay (24BIT0537) -- AHP Router")
+        st.caption("Rani (24BIT0543) -- Execution Layer")
         st.markdown("---")
-        st.caption("AWS Migration: Replace each local component with the service shown in docs/research/architecture_notes.md")
+        _alive = False
+        try:
+            import requests as _req
+            _alive = _req.get(f"{API_BASE}/health", timeout=1).status_code == 200
+        except Exception:
+            pass
+        st.caption(f"API Backend: {'Online' if _alive else 'Offline'}")
+        st.caption(f"Loaded: {pd.Timestamp.now().strftime('%H:%M:%S')}")
 
     # --- Load data ---
     records      = get_recent_hot_records(limit=500)
@@ -380,25 +434,27 @@ def render_dashboard():
     df = pd.DataFrame(records)
 
     # --- Metrics row ---
-    total_all = sum(distribution.values()) if distribution else 0
-    total_all = max(total_all, 1)
-    edge_n    = distribution.get("EDGE",  0)
-    cloud_n   = distribution.get("CLOUD", 0)
+    total_all  = max(sum(distribution.values()) if distribution else 0, 1)
+    edge_n     = distribution.get("EDGE",  0)
+    cloud_n    = distribution.get("CLOUD", 0)
+    overrides  = int((df["reason"] == "override_critical_patient").sum()) if "reason" in df.columns else 0
+    veto_count = int((df["reason"] == "network_degradation_veto").sum()) if "reason" in df.columns else 0
+    alert_sent = overrides  # each emergency fires Telegram + Gmail
 
-    st.markdown('<div class="section-header">📊 Key Metrics</div>', unsafe_allow_html=True)
-    m1, m2, m3, m4, m5 = st.columns(5)
+    st.markdown('<div class="section-header">Key Metrics</div>', unsafe_allow_html=True)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     with m1:
-        st.metric("Total Events", f"{total_all:,}")
+        st.metric("Total Events",       f"{total_all:,}")
     with m2:
-        st.metric("Routed to EDGE", f"{edge_n:,}", f"{edge_n/total_all*100:.1f}%")
+        st.metric("Routed to EDGE",     f"{edge_n:,}",  f"{edge_n/total_all*100:.1f}%")
     with m3:
-        st.metric("Routed to CLOUD", f"{cloud_n:,}", f"{cloud_n/total_all*100:.1f}%")
+        st.metric("Routed to CLOUD",    f"{cloud_n:,}", f"{cloud_n/total_all*100:.1f}%")
     with m4:
-        overrides = len(df[df["reason"] == "override_critical_patient"]) if "reason" in df else 0
-        st.metric("🚨 Emergency Overrides", f"{overrides}")
+        st.metric("Emergency Overrides",f"{overrides}")
     with m5:
-        vetocount = len(df[df["reason"] == "network_degradation_veto"]) if "reason" in df else 0
-        st.metric("⚠️ Network Vetoes", f"{vetocount}")
+        st.metric("Network Vetoes",     f"{veto_count}")
+    with m6:
+        st.metric("Alerts Sent",        f"{alert_sent}", "Telegram + Gmail")
 
     st.markdown("---")
 
@@ -440,32 +496,127 @@ def render_dashboard():
 
     st.markdown("---")
 
-    # --- Recent Events Table ---
-    st.markdown('<div class="section-header">📋 Recent Events (last 20)</div>', unsafe_allow_html=True)
+    # --- Recent Events Table + Alert Feed ---
+    col_feed, col_table = st.columns([1, 2])
 
-    display_cols = ["device_id", "timestamp", "routing_decision", "reason",
-                    "predicted_latency_ms", "patient_criticality_score", "stored_at"]
-    display_df   = df[[c for c in display_cols if c in df.columns]].head(20)
+    with col_feed:
+        st.markdown('<div class="section-header">Live Alert Feed</div>', unsafe_allow_html=True)
+        for _, row in df.head(15).iterrows():
+            reason   = str(row.get("reason", ""))
+            decision = str(row.get("routing_decision", ""))
+            device   = str(row.get("device_id", "???"))
+            crit     = float(row.get("patient_criticality_score", 0.0))
+            lat      = float(row.get("predicted_latency_ms", 0.0))
+            ts_raw   = str(row.get("stored_at", ""))
+            try:
+                from datetime import datetime
+                ts_dt  = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                ts_str = ts_dt.strftime("%H:%M:%S")
+            except Exception:
+                ts_str = ts_raw[:19]
+            if reason == "override_critical_patient":
+                emoji  = "EMERGENCY"
+                colour = "#ef4444"
+                bg     = "rgba(239,68,68,0.12)"
+                detail = f"Crit {crit:.1f}/10 -- Telegram + Gmail SENT"
+            elif decision == "CLOUD":
+                emoji  = "CLOUD"
+                colour = "#3b82f6"
+                bg     = "rgba(37,99,235,0.10)"
+                detail = f"RTT {lat:.1f}ms -- AHP cloud-preferred"
+            else:
+                emoji  = "EDGE"
+                colour = "#10b981"
+                bg     = "rgba(16,185,129,0.10)"
+                detail = f"RTT {lat:.1f}ms -- Edge offload"
+            st.markdown(
+                f"<div style='background:{bg};border-left:3px solid {colour};"
+                f"border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:0.81rem;'>"
+                f"<b style='color:{colour};'>[{emoji}]</b> <b>{device}</b> "
+                f"<span style='float:right;color:#64748b;font-size:0.75rem;'>{ts_str}</span><br>"
+                f"<span style='color:#94a3b8;'>{detail}</span></div>",
+                unsafe_allow_html=True
+            )
 
-    def colour_decision(val):
-        if val == "EDGE":
-            return "background-color: #7f0000; color: white; font-weight: bold"
-        return "background-color: #0a3055; color: white; font-weight: bold"
+    with col_table:
+        st.markdown('<div class="section-header">Recent Routing Events (last 30)</div>', unsafe_allow_html=True)
+        disp_cols  = ["device_id", "stored_at", "routing_decision", "reason",
+                      "predicted_latency_ms", "patient_criticality_score"]
+        display_df = df[[c for c in disp_cols if c in df.columns]].head(30).copy()
 
-    def colour_reason(val):
-        if val == "override_critical_patient":
-            return "background-color: #7f0000; color: white"
-        elif val == "network_degradation_veto":
-            return "background-color: #5d2e00; color: white"
-        return ""
+        if "stored_at" in display_df.columns:
+            display_df["stored_at"] = (
+                pd.to_datetime(display_df["stored_at"], format="ISO8601", utc=True, errors="coerce")
+                .dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
+        for col in ["predicted_latency_ms", "patient_criticality_score"]:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].round(2)
 
-    styled = (display_df.style
-              .map(colour_decision, subset=["routing_decision"])
-              .map(colour_reason,   subset=["reason"]))
-    st.dataframe(styled, use_container_width=True, height=420)
+        display_df = display_df.rename(columns={
+            "device_id":                  "Device",
+            "stored_at":                  "Time",
+            "routing_decision":           "Decision",
+            "reason":                     "Reason",
+            "predicted_latency_ms":       "RTT (ms)",
+            "patient_criticality_score":  "Criticality",
+        })
 
-    st.caption(f"Showing {len(display_df)} of {total_all} total events. "
-               f"Last updated: {pd.Timestamp.now().strftime('%H:%M:%S')}")
+        def colour_decision(val):
+            if val == "EDGE":
+                return "background-color: rgba(239,68,68,0.25); color:#fca5a5; font-weight:700"
+            return "background-color: rgba(37,99,235,0.2); color:#93c5fd; font-weight:700"
+
+        def colour_reason(val):
+            if val == "override_critical_patient":
+                return "background-color: rgba(239,68,68,0.2); color:#fca5a5;"
+            if val == "network_degradation_veto":
+                return "background-color: rgba(249,115,22,0.2); color:#fdba74;"
+            return ""
+
+        styled = display_df.style
+        if "Decision" in display_df.columns:
+            styled = styled.map(colour_decision, subset=["Decision"])
+        if "Reason" in display_df.columns:
+            styled = styled.map(colour_reason, subset=["Reason"])
+        st.dataframe(styled, use_container_width=True, height=440)
+        st.caption(
+            f"Showing latest {len(display_df)} of {total_all:,} total events -- "
+            f"Refreshed at {pd.Timestamp.now().strftime('%H:%M:%S')}"
+        )
+
+    st.markdown("---")
+
+    with st.expander("How This Dashboard Works -- Pipeline Architecture & AWS Migration"):
+        st.markdown("""
+**Data Flow:**
+```
+IoMT Sensor (RIPE Atlas / PhysioNet BiDMC)
+  => simulate_stream.py  (sliding window, 20 readings)
+  => POST /ingest  =>  FastAPI orchestration layer
+         |- Charles BiLSTM model: predicts RTT degradation
+         |- Tanmay AHP engine: decides EDGE or CLOUD
+         |- Execution layer: routes + saves to SQLite hot/cold storage
+         \\- If criticality >= 9.0:  Telegram Bot + Gmail alert fired
+  => Dashboard reads SQLite every N seconds  =>  Charts update live
+```
+**Alert System:**
+- EMERGENCY OVERRIDE (criticality >= 9.0): Edge-forced. Telegram + Gmail dispatched.
+- Network Degradation Veto (RTT >= 300ms): Cloud overridden regardless of AHP score.
+- AHP Decision: Normal MCDM routing (Consistency Ratio < 0.10).
+
+**AWS Migration Path:**
+
+| Local Component | AWS Target Service |
+| :--- | :--- |
+| SQLite hot_storage | DynamoDB |
+| SQLite cold_storage | S3 + Glacier |
+| FastAPI /ingest | API Gateway + Lambda |
+| Mock Cognito auth | Amazon Cognito User Pool |
+| Streamlit dashboard | Amazon QuickSight |
+| RotatingFileHandler | CloudWatch Logs |
+| GitHub Actions | CodePipeline + ECR |
+        """)
 
     # --- Auto-refresh ---
     if auto_refresh:
