@@ -1,4 +1,4 @@
-﻿# AI-Based Multi-Cloud Migration Decision Framework for Healthcare Enterprises
+# AI-Based Multi-Cloud Migration Decision Framework for Healthcare Enterprises
 ## BCSE355L - Cloud Architecture Design | VIT University | October 2026
 
 ---
@@ -19,7 +19,7 @@
 | Tanmay | 24BIT0537 | AHP Decision Engine, Override Logic, Alerts |
 | [Third Member] | 24BIT0543 | Database, Testing, CI/CD, Dashboard |
 
-**GitHub:** https://github.com/itscharles4/AI-Based-Multi-Cloud-Migration-Decision-Framework-for-Healthcare-Enterprises
+**GitHub:** https://github.com/itscharles4/AI-Based-Multi-Cloud-Migration-Decision-Framework-for-Healthcare-Enterprises_Cloud_Project_2026
 
 ---
 

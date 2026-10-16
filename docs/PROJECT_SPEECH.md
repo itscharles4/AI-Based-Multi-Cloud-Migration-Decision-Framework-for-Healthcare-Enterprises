@@ -4,7 +4,7 @@
 
 > **Team:** Charles (24BIT0522) · Tanmay Kapoor (24BIT0079) · Rani Gupta (24BIT0543)
 > **Course:** BCSE355L — Cloud Architecture Design, VIT University
-> **Repository:** [github.com/itscharles4/AI-Based-Multi-Cloud-Migration...](https://github.com/itscharles4/AI-Based-Multi-Cloud-Migration-Decision-Framework-for-Healthcare-Enterprises)
+> **Repository:** [github.com/itscharles4/AI-Based-Multi-Cloud-Migration-Decision-Framework-for-Healthcare-Enterprises_Cloud_Project_2026](https://github.com/itscharles4/AI-Based-Multi-Cloud-Migration-Decision-Framework-for-Healthcare-Enterprises_Cloud_Project_2026)
 
 ---
 
